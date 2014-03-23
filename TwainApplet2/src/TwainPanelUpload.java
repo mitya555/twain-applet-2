@@ -36,6 +36,8 @@ import java.util.Map;
 //import java.net.URLConnection;
 //import java.net.URLEncoder;
 
+
+
 import javax.imageio.ImageIO;
 //import javax.swing.Box;
 import javax.swing.BorderFactory;
@@ -44,14 +46,15 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 
 import netscape.javascript.JSObject;
-
 import uk.co.mmscomputing.device.scanner.Scanner;
 import uk.co.mmscomputing.device.scanner.ScannerIOMetadata;
+import uk.co.mmscomputing.device.twain.TwainBufferedImage;
 import uk.co.mmscomputing.device.twain.TwainIOException;
 import uk.co.mmscomputing.device.twain.TwainIOMetadata;
 import uk.co.mmscomputing.device.twain.TwainImageInfo;
 import uk.co.mmscomputing.device.twain.TwainSource;
 import uk.co.mmscomputing.device.twain.TwainPanel;
+import uk.co.mmscomputing.device.twain.TwainTransfer.MemoryTransfer.Info;
 
 @SuppressWarnings("serial")
 public class TwainPanelUpload extends TwainPanel {
@@ -333,6 +336,20 @@ public class TwainPanelUpload extends TwainPanel {
 //	private int exceptionCount = 0;
 	
 	private int prevState;
+	private TwainImageInfo imageInfo;
+	private int imageType;
+	private int getImageType(TwainImageInfo imageInfo) {
+		int imageType = BufferedImage.TYPE_3BYTE_BGR;
+		switch (imageInfo.getBitsPerPixel()) {
+		case  1: break;
+		case  4: break;
+		case  8: imageType = BufferedImage.TYPE_BYTE_GRAY; break;
+		case 16: imageType = BufferedImage.TYPE_USHORT_GRAY; break;
+		case 24: imageType = BufferedImage.TYPE_3BYTE_BGR; break;
+		case 32: imageType = BufferedImage.TYPE_4BYTE_ABGR; break;
+		}
+		return imageType;
+	}
 	
 	public void update(ScannerIOMetadata.Type type, ScannerIOMetadata scannerIOMetadata) {
 
@@ -349,6 +366,25 @@ public class TwainPanelUpload extends TwainPanel {
 		if (type.equals(ScannerIOMetadata.ACQUIRED)) {
 			Object image = scannerIOMetadata.getImage();
 			debug("ACQUIRED: " + image);
+//			safeSend(image, false);
+		}
+		else if (type.equals(ScannerIOMetadata.MEMORY)) {
+			Info memory = ((TwainIOMetadata)scannerIOMetadata).getMemory();
+			TwainBufferedImage image = (TwainBufferedImage)scannerIOMetadata.getImage();
+			if (image == null || memory.getTop() == 0) {
+				scannerIOMetadata.setImage(image = new TwainBufferedImage(
+						imageInfo.getWidth(), imageInfo.getHeight(), imageType));
+			}
+			if (imageType != BufferedImage.TYPE_4BYTE_ABGR)
+				System.arraycopy(memory.getBuffer(), 0,
+						image.getBuffer(), memory.getTop() * memory.getBytesPerRow(),
+						memory.getHeight() * memory.getBytesPerRow());
+			else
+				// for 32-bit convert BGRA (Windows BITMAPINFO RGBQUAD) to ABGR (Java BufferedImage)
+				System.arraycopy(memory.getBuffer(), 0,
+						image.getBuffer(), memory.getTop() * memory.getBytesPerRow() + 1,
+						memory.getHeight() * memory.getBytesPerRow() - 1);
+			debug("MEMORY: " + memory);
 //			safeSend(image, false);
 		}
 		else if (type.equals(ScannerIOMetadata.STATECHANGE)) {
@@ -381,9 +417,10 @@ public class TwainPanelUpload extends TwainPanel {
 //				int height = jtwain.getINT32(arrayOfByte, 12);
 //				int bitsPerPixel = jtwain.getINT16(arrayOfByte, 34);
 //				debug("Width x Height: " + width + " x " + height + "; Bits per pixel: " + bitsPerPixel);
-				TwainImageInfo imageInfo = new TwainImageInfo(twainSource);
+				imageInfo = new TwainImageInfo(twainSource);
 				try {
 					imageInfo.get();
+					imageType = getImageType(imageInfo);
 				} catch (TwainIOException e) {
 					e.printStackTrace();
 				}
